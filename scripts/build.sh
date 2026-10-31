@@ -107,7 +107,7 @@ sanitize_wcn3990_dtb() {
 
 clean_build_tree() {
     case "$WORK" in
-        /work|/work/*|/workspace/oneplus6-image/work) ;;
+        /work|/work/*|/workspace/oneplus6-ubuntu-image/work) ;;
         *) fail "unsafe work path: $WORK" ;;
     esac
     mkdir -p "$WORK"
@@ -235,7 +235,7 @@ validate_config() {
         fail "release builds require a clean Orbital worktree"
     fi
     if [[ "$BUILD_RELEASE" == "1" ]] && [[ -n "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" ]]; then
-        fail "release builds require a clean oneplus6-image worktree"
+        fail "release builds require a clean oneplus6-ubuntu-image worktree"
     fi
     for cmd in curl tar gzip cpio sha256sum mke2fs dumpe2fs debugfs e2fsck img2simg mkbootimg \
         fdtget fdtput proot qemu-aarch64 useradd rsync cmake git jq openssl python3; do

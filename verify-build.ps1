@@ -34,7 +34,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "Build manifest not found: $manifestPath"
 }
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "config\source-revisions.lock.tsv") -PathType Leaf)) {
-    throw "BuildRoot must be the oneplus6-image repository: $repoRoot"
+    throw "BuildRoot must be the oneplus6-ubuntu-image repository: $repoRoot"
 }
 
 function Get-ContainedFile {

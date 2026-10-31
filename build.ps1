@@ -146,7 +146,7 @@ if ($ReleaseBuild) {
     }
     $repositoryStatus = @(& git -C $root status --porcelain=v1 --untracked-files=all)
     if ($LASTEXITCODE -ne 0 -or $repositoryStatus.Count -gt 0) {
-        throw "ReleaseBuild requires a clean oneplus6-image worktree. No build was started."
+        throw "ReleaseBuild requires a clean oneplus6-ubuntu-image worktree. No build was started."
     }
 }
 

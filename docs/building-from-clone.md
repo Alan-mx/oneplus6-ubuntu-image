@@ -14,7 +14,7 @@
 
 ```powershell
 cd D:\workspace
-git clone https://github.com/Alan-mx/oneplus6-image.git
+git clone https://github.com/Alan-mx/oneplus6-ubuntu-image.git
 git clone https://github.com/Alan-mx/Orbital.git
 ```
 
@@ -29,7 +29,7 @@ git clone https://github.com/Alan-mx/Orbital.git
 Orbital 的 `HEAD` 与锁文件一致：
 
 ```powershell
-cd D:\workspace\oneplus6-image
+cd D:\workspace\oneplus6-ubuntu-image
 $row = Get-Content .\config\source-revisions.lock.tsv |
   Where-Object { $_ -match '^orbital\t' }
 $orbitalCommit = ($row -split "`t")[2]
@@ -101,7 +101,7 @@ git status
 git add <修改的源码文件>
 git commit
 git push
-cd D:\workspace\oneplus6-image
+cd D:\workspace\oneplus6-ubuntu-image
 ```
 
 更新锁文件必须显式提供完整 40 位提交 SHA 和版本标签：

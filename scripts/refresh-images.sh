@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT="/workspace/oneplus6-image"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${BUILD_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 WORK="${BUILD_WORK_DIR:-/work}"
 CONFIG_FILE="${CONFIG_FILE:-$ROOT/config/build.env}"
 

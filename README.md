@@ -12,7 +12,7 @@ postmarketOS 社区维护的 SDM845 内核，并可运行基于 Qt6 的 Orbital 
 
 当前公开版本为 **OnePlus 6 Ubuntu 26.04 Orbital**，GitHub Release 标签为 `v1`：
 
-<https://github.com/Alan-mx/oneplus6-image/releases/tag/v1>
+<https://github.com/Alan-mx/oneplus6-ubuntu-image/releases/tag/v1>
 
 主要特性：
 
@@ -104,11 +104,11 @@ http://172.16.42.1/diag.txt
 两个仓库需要放在同一个父目录：
 
 ```powershell
-git clone https://github.com/Alan-mx/oneplus6-image.git
+git clone https://github.com/Alan-mx/oneplus6-ubuntu-image.git
 git clone https://github.com/Alan-mx/Orbital.git
 ```
 
-`oneplus6-image` 的 `config/source-revisions.lock.tsv` 固定了 Orbital 提交。
+`oneplus6-ubuntu-image` 的 `config/source-revisions.lock.tsv` 固定了 Orbital 提交。
 构建器会拒绝版本不匹配的 Orbital 工作树。
 
 ### 构建

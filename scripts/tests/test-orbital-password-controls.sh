@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT="/workspace/oneplus6-image"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${BUILD_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 CHECKER="$ROOT/config/orbital-default-password-check"
 HELPER="$ROOT/scripts/orbital-auth.sh"
 temporary="$(mktemp -d)"

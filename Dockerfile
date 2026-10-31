@@ -58,5 +58,5 @@ RUN dpkg-query -W -f='${Package}\t${Version}\t${Architecture}\n' \
     && (test "$EXPORT_PACKAGE_LOCK" = 1 || cmp /tmp/builder-packages.lock.tsv /tmp/builder-packages.actual.tsv) \
     && rm -f /tmp/builder-packages.lock.tsv /tmp/builder-packages.actual.tsv
 
-WORKDIR /workspace/oneplus6-image
+WORKDIR /workspace/oneplus6-ubuntu-image
 ENTRYPOINT ["bash", "scripts/build.sh"]
