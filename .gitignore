@@ -4,7 +4,21 @@
 /work/
 /state/
 /logs/
-/inputs/
+
+# Download caches and local-only inputs; checked-in quick-build inputs are
+# explicitly re-included below.
+/inputs/*
+!/inputs/boot/
+!/inputs/boot/README.md
+!/inputs/tqftpserv/
+!/inputs/tqftpserv/README.md
+!/inputs/tqftpserv/tqftpserv
+!/inputs/pd-mapper/
+!/inputs/pd-mapper/README.md
+!/inputs/pd-mapper/pd-mapper
+!/inputs/rmtfs/
+!/inputs/rmtfs/README.md
+!/inputs/rmtfs/rmtfs
 
 # Nested working copy placeholder
 /oneplus6-image/
@@ -12,6 +26,7 @@
 # Images, archives and generated checksum sidecars
 *.raw
 *.img
+!/inputs/boot/oneplus6-boot-gpu-fix.img
 *.zip
 *.sha256
 

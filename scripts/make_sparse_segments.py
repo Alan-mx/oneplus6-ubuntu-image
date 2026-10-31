@@ -236,7 +236,7 @@ def main() -> int:
     parser.add_argument("--reuse-existing", action="store_true")
     parser.add_argument(
         "--part-prefix",
-        default="oneplus6-rootfs-orbital-v15-part",
+        default="oneplus6-rootfs-orbital-part",
     )
     args = parser.parse_args()
 

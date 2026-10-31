@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT="/workspace/oneplus6-image"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${BUILD_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 WORK="${BUILD_WORK_DIR:-$ROOT/work}"
 CONFIG_FILE="${CONFIG_FILE:-$ROOT/config/build.env}"
+OUT_DIR="${BUILD_OUTPUT_DIR:-$ROOT/out}"
+STATE_DIR="${BUILD_STATE_DIR:-$ROOT/state}"
+INPUT_DIR="${BUILD_INPUT_DIR:-$ROOT/inputs}"
+LOG_DIR="${BUILD_LOG_DIR:-$ROOT/logs}"
+PREPARED_DIR="${BUILD_PREPARED_INPUTS_DIR:-$WORK/prepared}"
+BUILD_RELEASE="${BUILD_RELEASE:-0}"
+SOURCE_REVISION_LOCK_FILE="${SOURCE_REVISION_LOCK_FILE:-$ROOT/config/source-revisions.lock.tsv}"
+BUILD_MODE="${BUILD_MODE:-quick}"
 
 # shellcheck disable=SC1091
 # shellcheck source=scripts/orbital-auth.sh
@@ -45,15 +54,18 @@ download() {
         if [[ -z "$expected" || "$(sha256 "$output")" == "$expected" ]]; then
             return 0
         fi
-        rm -f "$output"
+        fail "existing cached input has a different SHA-256; refusing to replace: $output"
     fi
     log "Downloading $url"
+    local temporary="$output.part.$$"
+    trap 'rm -f -- "$temporary"' RETURN
     curl --fail --location --retry 5 --retry-delay 3 --connect-timeout 30 \
-        --output "$output.part" "$url"
-    mv "$output.part" "$output"
-    if [[ -n "$expected" && "$(sha256 "$output")" != "$expected" ]]; then
-        fail "SHA-256 mismatch for $output"
+        --output "$temporary" "$url"
+    if [[ -n "$expected" && "$(sha256 "$temporary")" != "$expected" ]]; then
+        fail "SHA-256 mismatch for downloaded input: $url"
     fi
+    mv -- "$temporary" "$output"
+    trap - RETURN
 }
 
 chroot_run() {
@@ -95,33 +107,31 @@ sanitize_wcn3990_dtb() {
 
 clean_build_tree() {
     case "$WORK" in
-        /work|/workspace/oneplus6-image/work) ;;
+        /work|/work/*|/workspace/oneplus6-image/work) ;;
         *) fail "unsafe work path: $WORK" ;;
     esac
+    mkdir -p "$WORK"
     if [[ "${FRESH_BUILD:-0}" == "1" ]]; then
         find "$WORK" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
     fi
     mkdir -p "$WORK/rootfs-base" "$WORK/rootfs-orbital" \
         "$WORK/boot" "$WORK/apk-stage" "$WORK/validate"
-    rm -f "$ROOT/out"/*.img
+    mkdir -p "$STATE_DIR" "$OUT_DIR" "$INPUT_DIR"
+    [[ -z "$(find "$OUT_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]] \
+        || fail "refusing to mix or overwrite files in non-empty output directory: $OUT_DIR"
 }
 
 stub_systemd_command() {
     local rootfs="$1"
     local path="$2"
-    local legacy="$rootfs$path.proot-real"
-
-    if [[ ! -e "$rootfs$path" && -e "$legacy" ]]; then
-        mv "$legacy" "$rootfs$path"
-    fi
-    rm -f "$legacy"
-    [[ -e "$rootfs$path" ]] || return 0
-    if ! chroot_run "$rootfs" /usr/bin/dpkg-divert --local --list | grep -qF "$path"; then
-        chroot_run "$rootfs" /usr/bin/dpkg-divert --local --rename --add "$path" >/dev/null
-    fi
-    rm -f "$rootfs$path"
-    printf '#!/bin/sh\nexit 0\n' > "$rootfs$path"
-    chmod 0755 "$rootfs$path"
+    local name
+    name="$(basename "$path")"
+    for directory in usr/local/sbin usr/sbin; do
+        local stub="$rootfs/$directory/$name"
+        install -d -m 0755 "$(dirname "$stub")"
+        printf '#!/bin/sh\nexit 0\n' > "$stub"
+        chmod 0755 "$stub"
+    done
 }
 
 stub_systemd_sysusers() {
@@ -133,15 +143,9 @@ stub_systemd_sysusers() {
 restore_systemd_command() {
     local rootfs="$1"
     local path="$2"
-
-    rm -f "$rootfs$path.proot-real"
-    if chroot_run "$rootfs" /usr/bin/dpkg-divert --local --list | grep -qF "$path"; then
-        rm -f "$rootfs$path"
-        chroot_run "$rootfs" /usr/bin/dpkg-divert --local --rename --remove "$path" >/dev/null
-    fi
-    if [[ ! -e "$rootfs$path" && -e "$rootfs$path.distrib" ]]; then
-        mv "$rootfs$path.distrib" "$rootfs$path"
-    fi
+    local name
+    name="$(basename "$path")"
+    rm -f "$rootfs/usr/local/sbin/$name" "$rootfs/usr/sbin/$name"
 }
 
 restore_systemd_sysusers() {
@@ -162,11 +166,19 @@ remove_build_policy_rc() {
 }
 
 validate_config() {
+    local require_prepared="${1:-1}"
     [[ -f "$CONFIG_FILE" ]] || fail "config not found: $CONFIG_FILE"
     # shellcheck disable=SC1090
     source "$CONFIG_FILE"
+    ORBITAL_SOURCE_DIR="${ORBITAL_SOURCE_DIR_OVERRIDE:-${ORBITAL_SOURCE_DIR:-$WORK/sources/orbital}}"
     SSH_PUBLIC_KEY_FILE="${SSH_PUBLIC_KEY_FILE_OVERRIDE:-${SSH_PUBLIC_KEY_FILE:-}}"
     SSH_PASSWORD_FILE="${SSH_PASSWORD_FILE_OVERRIDE:-${SSH_PASSWORD_FILE:-}}"
+    APK_SHA256_LOCK="${APK_SHA256_LOCK_OVERRIDE:-${APK_SHA256_LOCK:-$ROOT/config/apk-sha256.lock}}"
+    UBUNTU_PACKAGE_LOCK="${UBUNTU_PACKAGE_LOCK_OVERRIDE:-${UBUNTU_PACKAGE_LOCK:-$ROOT/config/ubuntu-packages.lock.tsv}}"
+    [[ "$APK_SHA256_LOCK" == /* ]] || APK_SHA256_LOCK="$ROOT/$APK_SHA256_LOCK"
+    [[ "$UBUNTU_PACKAGE_LOCK" == /* ]] || UBUNTU_PACKAGE_LOCK="$ROOT/$UBUNTU_PACKAGE_LOCK"
+    [[ "$SSH_PASSWORD_FILE" == /* || -z "$SSH_PASSWORD_FILE" ]] \
+        || SSH_PASSWORD_FILE="$ROOT/$SSH_PASSWORD_FILE"
     SSH_AUTH_MODE="${SSH_AUTH_MODE:-}"
     [[ "$DEVICE_ID" == "oneplus-enchilada" ]] || fail "device must be oneplus-enchilada"
     [[ "$UBUNTU_VERSION" == "26.04.1" ]] || fail "Ubuntu must be 26.04.1"
@@ -177,14 +189,27 @@ validate_config() {
     [[ -f "$APK_SHA256_LOCK" ]] || fail "APK SHA-256 lock not found: $APK_SHA256_LOCK"
     [[ -f "$UBUNTU_PACKAGE_LOCK" ]] \
         || fail "Ubuntu package lock not found: $UBUNTU_PACKAGE_LOCK"
+    [[ -f "$SOURCE_REVISION_LOCK_FILE" ]] \
+        || fail "source revision lock not found: $SOURCE_REVISION_LOCK_FILE"
     require_sha256 "$ROOT/inputs/boot/oneplus6-boot-gpu-fix.img" \
-        "$BOOT_IMAGE_OVERRIDE_SHA256" "boot image override"
+        "$BOOT_IMAGE_OVERRIDE_SHA256" "boot image"
     require_sha256 "$ROOT/inputs/tqftpserv/tqftpserv" \
         "$TQFPSERV_SHA256" "tqftpserv"
     require_sha256 "$ROOT/inputs/pd-mapper/pd-mapper" \
         "$PD_MAPPER_SHA256" "pd-mapper"
     require_sha256 "$ROOT/inputs/rmtfs/rmtfs" \
         "$RMTFS_SHA256" "rmtfs"
+    if [[ "$require_prepared" == 1 ]]; then
+        [[ -s "$PREPARED_DIR/kernel/boot/vmlinuz" ]] || fail "prepared kernel is missing: $PREPARED_DIR"
+        [[ -s "$PREPARED_DIR/kernel/boot/sdm845-oneplus-enchilada.dtb" ]] || fail "prepared DTB is missing: $PREPARED_DIR"
+        [[ -d "$PREPARED_DIR/kernel/usr/lib/modules/$KERNEL_RELEASE" ]] || fail "prepared kernel modules are missing: $PREPARED_DIR"
+        for helper in tqftpserv pd-mapper rmtfs; do
+            [[ -x "$PREPARED_DIR/$helper/$helper" ]] || fail "prepared helper is missing: $PREPARED_DIR/$helper/$helper"
+        done
+        [[ -s "$PREPARED_DIR/prepared.sha256" ]] || fail "prepared-input checksum file is missing"
+        (cd "$PREPARED_DIR" && sha256sum --check prepared.sha256) \
+            || fail "prepared-input integrity check failed"
+    fi
     case "$SSH_AUTH_MODE" in
         fixed-password-file)
             [[ -s "$SSH_PASSWORD_FILE" ]] \
@@ -200,7 +225,18 @@ validate_config() {
             fail "unsupported SSH_AUTH_MODE: $SSH_AUTH_MODE"
             ;;
     esac
-    git -C "$ORBITAL_SOURCE_DIR" rev-parse HEAD >/dev/null || fail "Orbital source is not a git worktree"
+    local expected_orbital_commit actual_orbital_commit
+    expected_orbital_commit="$(awk -F '\t' '$1 == "orbital" { print $3 }' "$SOURCE_REVISION_LOCK_FILE")"
+    actual_orbital_commit="$(git -C "$ORBITAL_SOURCE_DIR" rev-parse HEAD 2>/dev/null)" \
+        || fail "Orbital source is not a git worktree: $ORBITAL_SOURCE_DIR"
+    [[ "$actual_orbital_commit" == "$expected_orbital_commit" ]] \
+        || fail "Orbital commit $actual_orbital_commit differs from lock $expected_orbital_commit"
+    if [[ "$BUILD_RELEASE" == "1" ]] && [[ -n "$(git -C "$ORBITAL_SOURCE_DIR" status --porcelain=v1 --untracked-files=all)" ]]; then
+        fail "release builds require a clean Orbital worktree"
+    fi
+    if [[ "$BUILD_RELEASE" == "1" ]] && [[ -n "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" ]]; then
+        fail "release builds require a clean oneplus6-image worktree"
+    fi
     for cmd in curl tar gzip cpio sha256sum mke2fs dumpe2fs debugfs e2fsck img2simg mkbootimg \
         fdtget fdtput proot qemu-aarch64 useradd rsync cmake git jq openssl python3; do
         require_cmd "$cmd"
@@ -229,8 +265,8 @@ verify_apk_lock_set() {
     local resolved locked
     resolved="$(
         jq -r '.packages[].filename' \
-            "$ROOT/state/apk-packages.json" \
-            "$ROOT/state/apk-packages-alpine.json" | sort
+            "$STATE_DIR/apk-packages.json" \
+            "$STATE_DIR/apk-packages-alpine.json" | sort
     )"
     locked="$(awk 'NF >= 2 { print $2 }' "$APK_SHA256_LOCK" | sort)"
     if [[ "$resolved" != "$locked" ]]; then
@@ -252,6 +288,7 @@ verify_apk_package() {
 
 verify_ubuntu_package_lock() {
     local rootfs="$1"
+    local label="${2:-orbital}"
     local actual="$WORK/ubuntu-packages-actual.tsv"
 
     dpkg-query --admindir="$rootfs/var/lib/dpkg" -W \
@@ -261,7 +298,8 @@ verify_ubuntu_package_lock() {
         diff -u "$UBUNTU_PACKAGE_LOCK" "$actual" || true
         fail "installed Ubuntu package set does not match $UBUNTU_PACKAGE_LOCK"
     fi
-    cp "$actual" "$ROOT/state/ubuntu-packages.tsv"
+    cp "$actual" "$STATE_DIR/ubuntu-packages-$label.tsv"
+    cp "$actual" "$STATE_DIR/ubuntu-packages.tsv"
 }
 
 install_locked_ubuntu_packages() {
@@ -288,28 +326,39 @@ install_locked_ubuntu_packages() {
 }
 
 write_initial_state() {
-    mkdir -p "$ROOT/state" "$ROOT/logs" "$ROOT/out" "$ROOT/inputs"
-    ORBITAL_COMMIT="$(git -C "$ORBITAL_SOURCE_DIR" rev-parse HEAD)"
-    ORBITAL_DIFF_FILE="$ROOT/state/orbital.diff"
-    git -C "$ORBITAL_SOURCE_DIR" diff --binary HEAD -- . > "$ORBITAL_DIFF_FILE"
-    while IFS= read -r file; do
-        git -C "$ORBITAL_SOURCE_DIR" diff --no-index --binary /dev/null "$file" >> "$ORBITAL_DIFF_FILE" || true
-    done < <(git -C "$ORBITAL_SOURCE_DIR" ls-files --others --exclude-standard)
-    ORBITAL_DIFF_SHA256="$(sha256 "$ORBITAL_DIFF_FILE")"
-    if [[ "$SSH_AUTH_MODE" == "fixed-password-file" ]]; then
-        SSH_KEY_FINGERPRINT="sha256:$(sha256 "$SSH_PASSWORD_FILE")"
-    else
-        SSH_KEY_FINGERPRINT="$(ssh-keygen -lf "$SSH_PUBLIC_KEY_FILE" | awk '{print $2}')"
+    mkdir -p "$STATE_DIR" "$LOG_DIR" "$OUT_DIR" "$INPUT_DIR"
+    local expected_orbital_commit
+    local -a snapshot_options=()
+    expected_orbital_commit="$(awk -F '\t' '$1 == "orbital" { print $3 }' "$SOURCE_REVISION_LOCK_FILE")"
+    if [[ "$BUILD_RELEASE" == "1" ]]; then
+        snapshot_options+=(--require-clean)
     fi
+    python3 "$ROOT/scripts/snapshot_source.py" \
+        "$ORBITAL_SOURCE_DIR" "$WORK/orbital-source-snapshot" \
+        --expected-commit "$expected_orbital_commit" \
+        --manifest "$WORK/orbital-source-manifest.json" \
+        "${snapshot_options[@]}"
+    ORBITAL_COMMIT="$(jq -r '.commit' "$WORK/orbital-source-manifest.json")"
+    ORBITAL_DIRTY="$(jq -r '.dirty' "$WORK/orbital-source-manifest.json")"
+    ORBITAL_TREE_SHA256="$(jq -r '.tree_sha256' "$WORK/orbital-source-manifest.json")"
+    ROOT_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
+    ROOT_DIRTY="false"
+    [[ -z "$(git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" ]] || ROOT_DIRTY="true"
+    ROOT_TREE_SHA256="$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from snapshot_source import git_tree_digest; print(git_tree_digest(Path(sys.argv[2]).resolve())[0])' \
+        "$ROOT/scripts" "$ROOT")"
 
-    cat > "$ROOT/state/build-state.json" <<EOF
+    cat > "$STATE_DIR/build-state.json" <<EOF
 {
   "schema_version": 1,
   "phase": "prepare_rootfs",
+  "build_mode": "$BUILD_MODE",
   "orbital_commit": "$ORBITAL_COMMIT",
-  "orbital_diff_sha256": "$ORBITAL_DIFF_SHA256",
-  "ssh_auth_mode": "$SSH_AUTH_MODE",
-  "ssh_key_fingerprint": "$SSH_KEY_FINGERPRINT"
+  "orbital_dirty": $ORBITAL_DIRTY,
+  "orbital_tree_sha256": "$ORBITAL_TREE_SHA256",
+  "oneplus6_image_commit": "$ROOT_COMMIT",
+  "oneplus6_image_dirty": $ROOT_DIRTY,
+  "oneplus6_image_tree_sha256": "$ROOT_TREE_SHA256",
+  "ssh_auth_mode": "$SSH_AUTH_MODE"
 }
 EOF
 }
@@ -317,36 +366,40 @@ EOF
 write_final_state() {
     local finished_at
     finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    cat > "$ROOT/state/build-state.json" <<EOF
+    cat > "$STATE_DIR/build-state.json" <<EOF
 {
   "schema_version": 1,
   "phase": "complete",
+  "build_mode": "$BUILD_MODE",
   "release_version": $RELEASE_VERSION,
   "release_name": "$RELEASE_NAME",
   "finished_at": "$finished_at",
   "orbital_commit": "$ORBITAL_COMMIT",
-  "orbital_diff_sha256": "$ORBITAL_DIFF_SHA256",
-  "ssh_auth_mode": "$SSH_AUTH_MODE",
-  "ssh_key_fingerprint": "$SSH_KEY_FINGERPRINT"
+  "orbital_dirty": $ORBITAL_DIRTY,
+  "orbital_tree_sha256": "$ORBITAL_TREE_SHA256",
+  "oneplus6_image_commit": "$ROOT_COMMIT",
+  "oneplus6_image_dirty": $ROOT_DIRTY,
+  "oneplus6_image_tree_sha256": "$ROOT_TREE_SHA256",
+  "ssh_auth_mode": "$SSH_AUTH_MODE"
 }
 EOF
 }
 
 fetch_inputs() {
-    local base="$ROOT/inputs/ubuntu/ubuntu-base-26.04.1-base-arm64.tar.gz"
+    local base="$INPUT_DIR/ubuntu/ubuntu-base-26.04.1-base-arm64.tar.gz"
     download "$UBUNTU_BASE_URL" "$base" "$UBUNTU_BASE_SHA256"
-    local index="$ROOT/inputs/nura/APKINDEX.tar.gz"
+    local index="$INPUT_DIR/nura/APKINDEX.tar.gz"
     download "$NURA_REPO/$NURA_BRANCH/$NURA_ARCH/APKINDEX.tar.gz" \
         "$index" "$NURA_APKINDEX_SHA256"
     tar -xOf "$index" APKINDEX > "$WORK/APKINDEX"
-    local alpine_index="$ROOT/inputs/alpine/APKINDEX.tar.gz"
+    local alpine_index="$INPUT_DIR/alpine/APKINDEX.tar.gz"
     download "$ALPINE_REPO/APKINDEX.tar.gz" \
         "$alpine_index" "$ALPINE_APKINDEX_SHA256"
     tar -xOf "$alpine_index" APKINDEX > "$WORK/APKINDEX-alpine"
 
     python3 "$ROOT/scripts/resolve_apk.py" \
         --index "$WORK/APKINDEX" \
-        --output "$ROOT/state/apk-packages.json" \
+        --output "$STATE_DIR/apk-packages.json" \
         --root "$KERNEL_PACKAGE" \
         --root "$DEVICE_PACKAGE" \
         --root "$FIRMWARE_PACKAGE" \
@@ -356,46 +409,46 @@ fetch_inputs() {
         --metadata "$DEVICE_PACKAGE"
     python3 "$ROOT/scripts/resolve_apk.py" \
         --index "$WORK/APKINDEX-alpine" \
-        --output "$ROOT/state/apk-packages-alpine.json" \
+        --output "$STATE_DIR/apk-packages-alpine.json" \
         --root "$ATH10K_FIRMWARE_PACKAGE"
 
     verify_apk_lock_set
-    verify_apk_package "$ROOT/state/apk-packages.json" \
+    verify_apk_package "$STATE_DIR/apk-packages.json" \
         "$KERNEL_PACKAGE" "$KERNEL_VERSION"
-    verify_apk_package "$ROOT/state/apk-packages.json" \
+    verify_apk_package "$STATE_DIR/apk-packages.json" \
         "$DEVICE_PACKAGE" "$DEVICE_PACKAGE_VERSION"
-    verify_apk_package "$ROOT/state/apk-packages.json" \
+    verify_apk_package "$STATE_DIR/apk-packages.json" \
         "$FIRMWARE_PACKAGE" "$FIRMWARE_PACKAGE_VERSION"
-    verify_apk_package "$ROOT/state/apk-packages.json" \
+    verify_apk_package "$STATE_DIR/apk-packages.json" \
         "firmware-oneplus-sdm845-sensors" "$FIRMWARE_SENSORS_VERSION"
-    verify_apk_package "$ROOT/state/apk-packages.json" \
+    verify_apk_package "$STATE_DIR/apk-packages.json" \
         "$ADRENO_FIRMWARE_PACKAGE" "$ADRENO_FIRMWARE_VERSION"
-    verify_apk_package "$ROOT/state/apk-packages.json" \
+    verify_apk_package "$STATE_DIR/apk-packages.json" \
         "alsa-ucm-conf-sdm845" "$ALSA_UCM_VERSION"
-    verify_apk_package "$ROOT/state/apk-packages-alpine.json" \
+    verify_apk_package "$STATE_DIR/apk-packages-alpine.json" \
         "$ATH10K_FIRMWARE_PACKAGE" "$ATH10K_FIRMWARE_VERSION"
 
-    : > "$ROOT/state/apk-sha256.txt"
+    : > "$STATE_DIR/apk-sha256.txt"
     while IFS=$'\t' read -r _pkg _version filename _role; do
-        local output="$ROOT/inputs/nura/$filename"
+        local output="$INPUT_DIR/nura/$filename"
         local expected
         expected="$(apk_lock_sha "$filename")"
         download "$NURA_REPO/$NURA_BRANCH/$NURA_ARCH/$filename" \
             "$output" "$expected"
-        printf '%s  %s\n' "$(sha256 "$output")" "$filename" >> "$ROOT/state/apk-sha256.txt"
-    done < <(jq -r '.packages[] | [.name, .version, .filename, .role] | @tsv' "$ROOT/state/apk-packages.json")
+        printf '%s  %s\n' "$(sha256 "$output")" "$filename" >> "$STATE_DIR/apk-sha256.txt"
+    done < <(jq -r '.packages[] | [.name, .version, .filename, .role] | @tsv' "$STATE_DIR/apk-packages.json")
     while IFS=$'\t' read -r _pkg _version filename _role; do
-        local output="$ROOT/inputs/alpine/$filename"
+        local output="$INPUT_DIR/alpine/$filename"
         local expected
         expected="$(apk_lock_sha "$filename")"
         download "$ALPINE_REPO/$filename" "$output" "$expected"
-        printf '%s  %s\n' "$(sha256 "$output")" "$filename" >> "$ROOT/state/apk-sha256.txt"
-    done < <(jq -r '.packages[] | [.name, .version, .filename, .role] | @tsv' "$ROOT/state/apk-packages-alpine.json")
+        printf '%s  %s\n' "$(sha256 "$output")" "$filename" >> "$STATE_DIR/apk-sha256.txt"
+    done < <(jq -r '.packages[] | [.name, .version, .filename, .role] | @tsv' "$STATE_DIR/apk-packages-alpine.json")
 }
 
 prepare_base_rootfs() {
     local rootfs="$WORK/rootfs-base"
-    local base="$ROOT/inputs/ubuntu/ubuntu-base-26.04.1-base-arm64.tar.gz"
+    local base="$INPUT_DIR/ubuntu/ubuntu-base-26.04.1-base-arm64.tar.gz"
     if [[ ! -f "$rootfs/etc/os-release" ]]; then
         tar -xpf "$base" -C "$rootfs"
     fi
@@ -421,6 +474,12 @@ prepare_base_rootfs() {
     chroot_run "$rootfs" groupadd --system _chrony 2>/dev/null || true
     chroot_run "$rootfs" useradd --system --gid _chrony --home-dir /var/lib/chrony \
         --shell /usr/sbin/nologin _chrony 2>/dev/null || true
+    chroot_run "$rootfs" groupadd --system messagebus 2>/dev/null || true
+    chroot_run "$rootfs" useradd --system --gid messagebus --home-dir /run/dbus \
+        --shell /usr/sbin/nologin messagebus 2>/dev/null || true
+    chroot_run "$rootfs" groupadd --system input 2>/dev/null || true
+    chroot_run "$rootfs" groupadd --system render 2>/dev/null || true
+    chroot_run "$rootfs" groupadd --system video 2>/dev/null || true
     if [[ -x "$rootfs/usr/bin/systemd-sysusers" ]]; then
         chroot_run "$rootfs" systemd-sysusers \
             basic.conf systemd-journal.conf systemd-network.conf chrony.conf \
@@ -428,6 +487,9 @@ prepare_base_rootfs() {
             openssh-server.conf pipewire.conf debian-udev.conf
     fi
     stub_systemd_sysusers "$rootfs"
+    stub_systemd_command "$rootfs" /usr/bin/systemctl
+    stub_systemd_command "$rootfs" /usr/bin/journalctl
+    stub_systemd_command "$rootfs" /usr/bin/systemd-machine-id-setup
     chroot_run "$rootfs" dpkg --configure -a
     chroot_run "$rootfs" apt-get \
         -o APT::Sandbox::User=root \
@@ -500,13 +562,17 @@ prepare_base_rootfs() {
         wireplumber \
         wpasupplicant
     restore_systemd_sysusers "$rootfs"
+    restore_systemd_command "$rootfs" /usr/bin/systemctl
+    restore_systemd_command "$rootfs" /usr/bin/journalctl
+    restore_systemd_command "$rootfs" /usr/bin/systemd-machine-id-setup
     install -D -m 0644 "$ROOT/config/99auto-upgrades-orbital" \
         "$rootfs/etc/apt/apt.conf.d/99auto-upgrades-orbital"
     install -D -m 0644 "$ROOT/config/99unattended-upgrades-orbital" \
         "$rootfs/etc/apt/apt.conf.d/99unattended-upgrades-orbital"
     chroot_run "$rootfs" apt-get clean
-    dpkg-query --admindir="$rootfs/var/lib/dpkg" -W \
-        -f='${Package}\t${Version}\t${Architecture}\n' > "$ROOT/state/ubuntu-packages.tsv"
+    install_locked_ubuntu_packages "$rootfs"
+    chroot_run "$rootfs" apt-get clean
+    verify_ubuntu_package_lock "$rootfs" base
 }
 
 extract_nura_inputs() {
@@ -516,9 +582,9 @@ extract_nura_inputs() {
 
     while read -r expected filename; do
         local apk name
-        apk="$ROOT/inputs/nura/$filename"
+        apk="$INPUT_DIR/nura/$filename"
         if [[ ! -f "$apk" ]]; then
-            apk="$ROOT/inputs/alpine/$filename"
+            apk="$INPUT_DIR/alpine/$filename"
         fi
         require_sha256 "$apk" "$expected" "locked APK"
         name="$(basename "$apk" .apk)"
@@ -530,6 +596,9 @@ extract_nura_inputs() {
     local kernel_stage
     kernel_stage="$(find "$stage" -maxdepth 1 -type d -name "linux-postmarketos-qcom-sdm845-*" | head -n 1)"
     [[ -n "$kernel_stage" ]] || fail "kernel APK was not extracted"
+    [[ -s "$kernel_stage/boot/vmlinuz" ]] || fail "kernel APK is missing boot/vmlinuz"
+    [[ -s "$kernel_stage/boot/dtbs/qcom/sdm845-oneplus-enchilada.dtb" ]] \
+        || fail "kernel APK is missing enchilada DTB"
     install -D -m 0644 "$kernel_stage/boot/vmlinuz" "$WORK/boot/vmlinuz"
     install -D -m 0644 "$kernel_stage/boot/dtbs/qcom/sdm845-oneplus-enchilada.dtb" \
         "$WORK/boot/sdm845-oneplus-enchilada.dtb"
@@ -544,11 +613,12 @@ extract_nura_inputs() {
     local rootfs="$WORK/rootfs-base"
     rm -rf "$rootfs/usr/lib/modules"
     mkdir -p "$rootfs/usr/lib/modules/$KERNEL_RELEASE" "$rootfs/usr/lib/firmware" "$rootfs/usr/share"
-    while IFS= read -r modules; do
-        rsync -a "$modules/" "$rootfs/usr/lib/modules/$KERNEL_RELEASE/"
-    done < <(find "$stage" -type d -path '*/usr/lib/modules/7.1.0-rc1-sdm845' -print)
+    rsync -a "$kernel_stage/usr/lib/modules/$KERNEL_RELEASE/" \
+        "$rootfs/usr/lib/modules/$KERNEL_RELEASE/"
     rm -f "$rootfs/usr/lib/modules/$KERNEL_RELEASE/build" \
         "$rootfs/usr/lib/modules/$KERNEL_RELEASE/source"
+    [[ -f "$rootfs/usr/lib/modules/$KERNEL_RELEASE/modules.dep" ]] \
+        || fail "kernel APK is missing modules.dep"
     depmod -b "$rootfs" -a "$KERNEL_RELEASE"
 
     while IFS= read -r firmware; do
@@ -584,6 +654,29 @@ extract_nura_inputs() {
 
     [[ -d "$rootfs/usr/lib/modules/$KERNEL_RELEASE" ]] || fail "kernel modules were not installed"
     [[ -f "$rootfs/usr/lib/modules/$KERNEL_RELEASE/modules.dep" ]] || fail "modules.dep missing"
+}
+
+prepare_quick_inputs() {
+    mkdir -p "$PREPARED_DIR"
+    for helper in tqftpserv pd-mapper rmtfs; do
+        local helper_input="$ROOT/inputs/$helper/$helper"
+        case "$helper" in
+            tqftpserv) require_sha256 "$helper_input" "$TQFPSERV_SHA256" "$helper" ;;
+            pd-mapper) require_sha256 "$helper_input" "$PD_MAPPER_SHA256" "$helper" ;;
+            rmtfs) require_sha256 "$helper_input" "$RMTFS_SHA256" "$helper" ;;
+        esac
+        install -D -m 0755 "$helper_input" "$PREPARED_DIR/$helper/$helper"
+        file "$helper_input" | grep -q 'ARM aarch64' \
+            || fail "prebuilt helper is not AArch64: $helper_input"
+    done
+    cp "$SOURCE_REVISION_LOCK_FILE" "$PREPARED_DIR/source-revisions.lock.tsv"
+    (cd "$PREPARED_DIR" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > prepared.sha256)
+}
+
+copy_prebuilt_boot() {
+    local boot_input="$ROOT/inputs/boot/oneplus6-boot-gpu-fix.img"
+    require_sha256 "$boot_input" "$BOOT_IMAGE_OVERRIDE_SHA256" "boot image"
+    install -D -m 0644 "$boot_input" "$OUT_DIR/oneplus6-boot.img"
 }
 
 configure_runtime_services() {
@@ -753,7 +846,7 @@ EOF
 build_base_image() {
     local rootfs="$WORK/rootfs-base"
     local raw="$WORK/rootfs-ubuntu.raw"
-    local sparse="$ROOT/out/oneplus6-rootfs-ubuntu.img"
+    local sparse="$OUT_DIR/oneplus6-rootfs-ubuntu.img"
     local bytes=$((ROOTFS_SIZE_MIB * 1024 * 1024))
     local used
     used="$(du -sb "$rootfs" | awk '{print $1}')"
@@ -765,7 +858,7 @@ build_base_image() {
         -E lazy_itable_init=0,lazy_journal_init=0 \
         -O ^64bit,^flex_bg,^metadata_csum,^metadata_csum_seed,^uninit_bg,^orphan_file \
         -L ORBITAL_BASE -d "$rootfs" "$raw"
-    e2fsck -fy "$raw" > "$ROOT/state/e2fsck-base.log"
+    e2fsck -fy "$raw" > "$STATE_DIR/e2fsck-base.log"
     img2simg "$raw" "$sparse" "$ROOTFS_BLOCK_SIZE"
 }
 
@@ -775,7 +868,7 @@ build_orbital_rootfs() {
     local source_copy="$WORK/orbital-src"
     rm -rf "$target" "$source_copy"
     cp -a "$source" "$target"
-    rsync -a --exclude '.git' --exclude 'build' "$ORBITAL_SOURCE_DIR/" "$source_copy/"
+    rsync -a "$WORK/orbital-source-snapshot/" "$source_copy/"
     rsync -a "$source_copy/" "$target/tmp/orbital-src/"
 
     write_apt_sources "$target" "$UBUNTU_APT_BUILD_MIRROR"
@@ -828,7 +921,7 @@ build_orbital_rootfs() {
 build_orbital_image() {
     local rootfs="$WORK/rootfs-orbital"
     local raw="$WORK/rootfs-orbital.raw"
-    local sparse="$ROOT/out/oneplus6-rootfs-orbital.img"
+    local sparse="$OUT_DIR/oneplus6-rootfs-orbital.img"
     local bytes=$((ROOTFS_SIZE_MIB * 1024 * 1024))
     local used
     used="$(du -sb "$rootfs" | awk '{print $1}')"
@@ -839,7 +932,7 @@ build_orbital_image() {
         -E lazy_itable_init=0,lazy_journal_init=0 \
         -O ^64bit,^flex_bg,^metadata_csum,^metadata_csum_seed,^uninit_bg,^orphan_file \
         -L ORBITAL_DESKTOP -d "$rootfs" "$raw"
-    e2fsck -fy "$raw" > "$ROOT/state/e2fsck-orbital.log"
+    e2fsck -fy "$raw" > "$STATE_DIR/e2fsck-orbital.log"
     img2simg "$raw" "$sparse" "$ROOTFS_BLOCK_SIZE"
 }
 
@@ -872,33 +965,10 @@ build_boot_image() {
     local dtb="$WORK/boot/sdm845-oneplus-enchilada.dtb"
     local initramfs="$WORK/boot/initramfs.cpio.gz"
     local kernel_dtb="$WORK/boot/vmlinuz-dtb"
-    local override_unpacked="$WORK/boot/boot-override"
-    local output="$ROOT/out/oneplus6-boot.img"
+    local output="$OUT_DIR/oneplus6-boot.img"
     local cmdline="console=ttyMSM0,115200 console=tty0 root=/dev/sda17 rootfstype=ext4 rootwait=10 loglevel=0 vt.global_cursor_default=0 systemd.show_status=1 systemd.log_level=info net.ifnames=0 rw"
     sanitize_wcn3990_dtb "$dtb"
-    if [[ -n "${BOOT_IMAGE_OVERRIDE:-}" && -f "$BOOT_IMAGE_OVERRIDE" ]]; then
-        log "Using prebuilt patched boot image: $BOOT_IMAGE_OVERRIDE"
-        rm -rf "$override_unpacked"
-        mkdir -p "$override_unpacked"
-        unpack_bootimg --boot_img "$BOOT_IMAGE_OVERRIDE" \
-            --out "$override_unpacked" >/dev/null
-        rm -f "$output"
-        mkbootimg \
-            --header_version 0 \
-            --kernel "$override_unpacked/kernel" \
-            --ramdisk "$initramfs" \
-            --base 0x00000000 \
-            --kernel_offset 0x00008000 \
-            --ramdisk_offset 0x01000000 \
-            --second_offset 0x00f00000 \
-            --tags_offset 0x00000100 \
-            --pagesize 4096 \
-            --cmdline "$cmdline" \
-            -o "$output"
-        return
-    fi
     cat "$kernel" "$dtb" > "$kernel_dtb"
-    rm -f "$output"
     mkbootimg \
         --header_version 0 \
         --kernel "$kernel_dtb" \
@@ -918,14 +988,14 @@ rebuild_boot_only() {
     build_initramfs
     build_boot_image
     python3 "$ROOT/scripts/verify_images.py" \
-        --boot "$ROOT/out/oneplus6-boot.img" \
+        --boot "$OUT_DIR/oneplus6-boot.img" \
         --dtb "$WORK/boot/sdm845-oneplus-enchilada.dtb" \
-        --base-sparse "$ROOT/out/oneplus6-rootfs-ubuntu.img" \
-        --orbital-sparse "$ROOT/out/oneplus6-rootfs-orbital.img" \
+        --base-sparse "$OUT_DIR/oneplus6-rootfs-ubuntu.img" \
+        --orbital-sparse "$OUT_DIR/oneplus6-rootfs-orbital.img" \
         --expected-size "$((ROOTFS_SIZE_MIB * 1024 * 1024))" \
-        --output "$ROOT/state/verification.json"
+        --output "$STATE_DIR/verification.json"
     log "Boot image rebuilt"
-    ls -lh "$ROOT/out"/oneplus6-boot.img
+    ls -lh "$OUT_DIR"/oneplus6-boot.img
 }
 
 verify_outputs() {
@@ -934,9 +1004,6 @@ verify_outputs() {
     test -d "$WORK/rootfs-orbital/usr/lib/modules/$KERNEL_RELEASE"
     test -x "$WORK/rootfs-orbital/opt/orbital/Orbital"
     test ! -e "$WORK/rootfs-base/opt/orbital"
-    test -f "$WORK/initramfs-root/lib/firmware/qcom/a630_sqe.fw"
-    test -f "$WORK/initramfs-root/lib/firmware/qcom/a630_gmu.bin"
-    test -f "$WORK/initramfs-root/lib/firmware/qcom/sdm845/OnePlus/enchilada/a630_zap.mbn"
     file "$WORK/rootfs-orbital/opt/orbital/Orbital" | grep -q 'ARM aarch64'
     for rootfs in "$WORK/rootfs-base" "$WORK/rootfs-orbital"; do
         test -x "$rootfs/usr/bin/tqftpserv"
@@ -964,52 +1031,92 @@ verify_outputs() {
         file "$rootfs/usr/bin/pd-mapper" | grep -q 'ARM aarch64'
         file "$rootfs/usr/bin/rmtfs" | grep -q 'ARM aarch64'
     done
-    debugfs -R 'cat /usr/lib/os-release' "$WORK/rootfs-ubuntu.raw" > "$ROOT/state/base-os-release.txt"
-    debugfs -R 'cat /usr/lib/os-release' "$WORK/rootfs-orbital.raw" > "$ROOT/state/orbital-os-release.txt"
+    debugfs -R 'cat /usr/lib/os-release' "$WORK/rootfs-ubuntu.raw" > "$STATE_DIR/base-os-release.txt"
+    debugfs -R 'cat /usr/lib/os-release' "$WORK/rootfs-orbital.raw" > "$STATE_DIR/orbital-os-release.txt"
     python3 "$ROOT/scripts/verify_images.py" \
-        --boot "$ROOT/out/oneplus6-boot.img" \
-        --dtb "$WORK/boot/sdm845-oneplus-enchilada.dtb" \
-        --base-sparse "$ROOT/out/oneplus6-rootfs-ubuntu.img" \
-        --orbital-sparse "$ROOT/out/oneplus6-rootfs-orbital.img" \
+        --boot "$OUT_DIR/oneplus6-boot.img" \
+        --base-sparse "$OUT_DIR/oneplus6-rootfs-ubuntu.img" \
+        --orbital-sparse "$OUT_DIR/oneplus6-rootfs-orbital.img" \
         --expected-size "$bytes" \
-        --output "$ROOT/state/verification.json"
+        --output "$STATE_DIR/verification.json"
     printf 'base_modules=%s\norbital_modules=%s\n' \
         "$(sha256 "$WORK/rootfs-base/usr/lib/modules/$KERNEL_RELEASE/modules.dep")" \
         "$(sha256 "$WORK/rootfs-orbital/usr/lib/modules/$KERNEL_RELEASE/modules.dep")" \
-        > "$ROOT/state/module-consistency.txt"
+        > "$STATE_DIR/module-consistency.txt"
     printf 'tqftpserv=%s\n' \
         "$(sha256 "$WORK/rootfs-base/usr/bin/tqftpserv")" \
-        > "$ROOT/state/tqftpserv-consistency.txt"
+        > "$STATE_DIR/tqftpserv-consistency.txt"
     printf 'pd-mapper=%s\n' \
         "$(sha256 "$WORK/rootfs-base/usr/bin/pd-mapper")" \
-        > "$ROOT/state/pd-mapper-consistency.txt"
+        > "$STATE_DIR/pd-mapper-consistency.txt"
     printf 'rmtfs=%s\n' \
         "$(sha256 "$WORK/rootfs-base/usr/bin/rmtfs")" \
-        > "$ROOT/state/rmtfs-consistency.txt"
+        > "$STATE_DIR/rmtfs-consistency.txt"
 }
 
 main() {
-    validate_config
+    validate_config 0
+    BUILD_STARTED_AT="${BUILD_STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
     clean_build_tree
     write_initial_state
     fetch_inputs
     prepare_base_rootfs
     extract_nura_inputs
+    prepare_quick_inputs
     configure_base_system
     build_base_image
     build_orbital_rootfs
     build_orbital_image
-    build_initramfs
-    build_boot_image
+    copy_prebuilt_boot
     verify_outputs
     write_final_state
+    package_release
+    write_build_manifest
     log "Build complete"
-    ls -lh "$ROOT/out"/*.img
+    ls -lh "$OUT_DIR"/*.img "$OUT_DIR"/*.zip "$OUT_DIR"/build-manifest.json
+}
+
+package_release() {
+    local segment_dir="$OUT_DIR/oneplus6-rootfs-orbital-segments"
+    python3 "$ROOT/scripts/make_sparse_segments.py" \
+        "$WORK/rootfs-orbital.raw" "$segment_dir" \
+        --block-size "$ROOTFS_BLOCK_SIZE" --segment-mib 384 \
+        --part-prefix oneplus6-rootfs-orbital
+    cp "$ROOT/docs/segmented-flash-README.md" "$segment_dir/README.md"
+    python3 "$ROOT/scripts/package_segmented_release.py" \
+        "$segment_dir" \
+        "$OUT_DIR/oneplus6-boot.img" \
+        "$ROOT/scripts/flash-segments.ps1" \
+        "$STATE_DIR/verification.json" \
+        "$OUT_DIR/oneplus6-segmented-flash.zip" \
+        --report "$STATE_DIR/package-report.json" \
+        --package-name oneplus6-segmented-flash
+}
+
+write_build_manifest() {
+    python3 "$ROOT/scripts/write_build_manifest.py" \
+        --root "$ROOT" \
+        --work "$WORK" \
+        --out "$OUT_DIR" \
+        --state "$STATE_DIR" \
+        --config "$CONFIG_FILE" \
+        --source-lock "$SOURCE_REVISION_LOCK_FILE" \
+        --prepared "$PREPARED_DIR" \
+        --platform "${BUILD_PLATFORM:-linux-$(uname -m)}" \
+        --builder-image "${BUILD_IMAGE_ID:-unknown}" \
+        --kernel-builder-image "${KERNEL_BUILDER_IMAGE_ID:-unknown}"
 }
 
 case "${1:-}" in
     --boot-only)
         rebuild_boot_only
+        ;;
+    --check-only)
+        validate_config 0
+        log "Build configuration and host tools are available"
+        ;;
+    --prepare-only)
+        exec bash "$ROOT/scripts/prepare-inputs.sh"
         ;;
     "")
         main "$@"

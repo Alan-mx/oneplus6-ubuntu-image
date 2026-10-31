@@ -1,0 +1,8 @@
+component	repository	commit	version	license
+pmaports	https://gitlab.postmarketos.org/postmarketOS/pmaports.git	2a8621d64d91647f7362eac59e7cdc091ff2bba8	v26.06	GPL-3.0-only
+kernel	https://gitlab.com/sdm845-mainline/linux.git	85f1df2a4ec71d7a91dd95a7a49f889d1595ffa8	sdm845-7.1-rc1-r0	GPL-2.0-only
+qrtr	https://github.com/linux-msm/qrtr.git	b51ffaf22707b6000ecfb894c5b750f3bb7843b2	v1.2	BSD-3-Clause
+tqftpserv	https://github.com/linux-msm/tqftpserv.git	b31de6db4f31d09119293203d39636b827f16321	v1.3	BSD-3-Clause
+pd-mapper	https://github.com/linux-msm/pd-mapper.git	5ecd2fe926aca7abfe40724177f63b942cff3947	v1.1	BSD-3-Clause
+rmtfs	https://github.com/linux-msm/rmtfs.git	b30a3eb38f9af283f18dbd3c7755653efc52c094	v1.3	BSD-3-Clause
+orbital	https://github.com/Alan-mx/Orbital.git	2e06f8b65a19d0dbf346dc80b02eaea9047dca12	public-main-2026-10-15	MIT

@@ -13,9 +13,6 @@ from pathlib import Path
 
 
 COPY_BUFFER_SIZE = 4 * 1024 * 1024
-EXPECTED_BOOT_SHA256 = (
-    "215f7bd5fd5deb7a3257dba893ce9eaad514ef1d29e346580852a7d8db3948b5"
-)
 
 
 def sha256_file(path: Path) -> str:
@@ -47,7 +44,7 @@ def main() -> int:
     parser.add_argument("--report", type=Path)
     parser.add_argument(
         "--package-name",
-        default="oneplus6-v15-segmented",
+        default="oneplus6-segmented-flash",
     )
     args = parser.parse_args()
 
@@ -66,8 +63,19 @@ def main() -> int:
             raise FileNotFoundError(required)
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if sha256_file(args.boot_image) != EXPECTED_BOOT_SHA256:
-        raise ValueError("boot image SHA-256 does not match V14")
+    boot_sha256 = sha256_file(args.boot_image)
+    release_manifest = {
+        "schema_version": 1,
+        "device_id": "oneplus-enchilada",
+        "boot_image": {
+            "file": "oneplus6-boot.img",
+            "sha256": boot_sha256,
+        },
+        "rootfs_segment_manifest": {
+            "file": "manifest.json",
+            "sha256": sha256_file(manifest_path),
+        },
+    }
 
     files: list[tuple[Path, str]] = [
         (readme_path, "README.md"),
@@ -86,8 +94,12 @@ def main() -> int:
             raise ValueError(f"segment SHA-256 mismatch: {source}")
         files.append((source, segment["file"]))
 
+    release_payload = (json.dumps(release_manifest, indent=2) + "\n").encode("utf-8")
     checksums = "".join(
         f"{sha256_file(path)}  {archive_name}\n" for path, archive_name in files
+    )
+    checksums += (
+        f"{hashlib.sha256(release_payload).hexdigest()}  release.json\n"
     )
     package_root = args.package_name
     args.output_zip.parent.mkdir(parents=True, exist_ok=True)
@@ -101,6 +113,12 @@ def main() -> int:
     ) as archive:
         for path, archive_name in files:
             add_file(archive, path, f"{package_root}/{archive_name}")
+        archive.writestr(
+            f"{package_root}/release.json",
+            release_payload,
+            compress_type=zipfile.ZIP_DEFLATED,
+            compresslevel=9,
+        )
         archive.writestr(
             f"{package_root}/SHA256SUMS.txt",
             checksums.encode("ascii"),
@@ -130,7 +148,7 @@ def main() -> int:
             "entry_count": len(names),
         },
         "contents": names,
-        "boot_sha256": EXPECTED_BOOT_SHA256,
+        "boot_sha256": boot_sha256,
         "segment_count": len(manifest["segments"]),
         "logical_image_size_bytes": manifest["format"]["logical_size_bytes"],
     }

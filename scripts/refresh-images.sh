@@ -256,11 +256,10 @@ printf 'rmtfs=%s\n' \
 if [[ "$SSH_AUTH_MODE" == "fixed-password-file" ]]; then
     printf 'mode=fixed-password-file\nuser=%s\n' \
         "$SSH_USER" > "$ROOT/state/ssh-auth.txt"
-    auth_fingerprint="sha256:$(sha256 "$SSH_PASSWORD_FILE")"
     echo "Images refreshed with password authentication for $SSH_USER"
 else
-    ssh-keygen -lf "$SSH_PUBLIC_KEY_FILE" > "$ROOT/state/ssh-auth.txt"
-    auth_fingerprint="$(ssh-keygen -lf "$SSH_PUBLIC_KEY_FILE" | awk '{print $2}')"
+    printf 'mode=public-key\nuser=%s\n' \
+        "$SSH_USER" > "$ROOT/state/ssh-auth.txt"
     echo "Images refreshed with SSH public key authentication"
 fi
 
@@ -271,14 +270,13 @@ if [[ -f "$ROOT/state/build-state.json" ]]; then
         --arg release_name "$RELEASE_NAME" \
         --arg finished_at "$finished_at" \
         --arg ssh_auth_mode "$SSH_AUTH_MODE" \
-        --arg ssh_key_fingerprint "$auth_fingerprint" \
         '
             .phase = "complete"
             | .release_version = $release_version
             | .release_name = $release_name
             | .finished_at = $finished_at
             | .ssh_auth_mode = $ssh_auth_mode
-            | .ssh_key_fingerprint = $ssh_key_fingerprint
+            | del(.ssh_key_fingerprint)
         ' "$ROOT/state/build-state.json" > "$ROOT/state/build-state.json.tmp"
     mv "$ROOT/state/build-state.json.tmp" "$ROOT/state/build-state.json"
 fi
