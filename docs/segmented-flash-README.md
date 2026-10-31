@@ -1,26 +1,26 @@
-# OnePlus 6 Segmented Flash Package
+# 一加 6 分段刷机包
 
-This package targets the OnePlus 6 (`enchilada`, fastboot product `sdm845`).
-It contains the boot image, the Orbital Ubuntu rootfs in Android sparse
-segments, checksum metadata, and a PowerShell flashing script.
+本刷机包适用于 OnePlus 6（`enchilada`，fastboot product 为 `sdm845`）。
+压缩包包含 boot 镜像、按 Android sparse 格式分段的 Orbital Ubuntu rootfs、
+校验元数据和 PowerShell 刷机脚本。
 
-Flashing erases the phone's entire `userdata` partition. Back up any data you
-need before continuing. Unlocking and flashing are the user's responsibility.
+刷机会清空手机的全部 `userdata` 分区。继续操作前请备份需要保留的数据。
+解锁和刷机由使用者自行承担责任。
 
-On Windows, extract the complete ZIP, open PowerShell in the extracted folder,
-and run:
+在 Windows 上解压完整 ZIP，在解压目录打开 PowerShell，然后运行：
 
 ```powershell
 pwsh -File .\flash.ps1 -Fastboot C:\path\to\platform-tools\fastboot.exe
 ```
 
-The script validates all local files before contacting fastboot, checks that
-exactly one `sdm845` device is connected, and asks for `ERASE USERDATA` before
-writing. To validate the package without a connected phone, run:
+脚本会在调用 fastboot 前验证全部本地文件，确认只连接了一台 `sdm845` 设备，
+并在写入前要求输入 `ERASE USERDATA` 确认。
+
+如果只想检查刷机包、不连接手机，可以运行：
 
 ```powershell
 pwsh -File .\flash.ps1 -ValidateOnly
 ```
 
-The package is generated from the current build and is not tied to a historical
-boot-image hash. `release.json` records the boot and segment-manifest hashes.
+刷机包由当前构建生成，不依赖历史 boot 镜像哈希。`release.json` 记录 boot 和
+分段 manifest 的哈希。

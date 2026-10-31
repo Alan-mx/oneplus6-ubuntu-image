@@ -1,9 +1,8 @@
-# OnePlus 6 raw userdata flash fails in 32-bit Windows fastboot
+# 一加 6 在 32 位 Windows fastboot 中刷写 raw userdata 失败
 
-## Symptom
+## 现象
 
-Flashing the 3.5 GiB uncompressed ext4 test image terminates before fastboot
-prints its first `Sending` line:
+刷写 3.5 GiB 未压缩 ext4 测试镜像时，fastboot 尚未打印第一行 `Sending` 就退出：
 
 ```text
 fastboot.exe flash userdata oneplus6-rootfs-orbital-v14-raw-test.raw
@@ -11,17 +10,16 @@ libc++abi: terminating due to uncaught exception of type std::bad_alloc:
 std::bad_alloc
 ```
 
-## Evidence
+## 证据
 
-The installed client is platform-tools 37.0.1. Its PE header identifies the
-executable as 32-bit x86:
+本机安装的客户端为 platform-tools 37.0.1。PE 头显示它是 32 位 x86 程序：
 
 ```text
 Machine:      0x014C
 Architecture: x86
 ```
 
-The raw image is:
+raw 镜像信息：
 
 ```text
 size:   3,758,096,384 bytes
@@ -29,7 +27,7 @@ format: uncompressed ext4
 sparse: false
 ```
 
-The phone is still available in fastboot mode:
+手机仍处于 fastboot 模式：
 
 ```text
 product:               sdm845
@@ -39,49 +37,42 @@ partition-size:userdata: 0x1B800BB000
 partition-type:userdata: ext4
 ```
 
-The crash occurs before fastboot prints any `Sending 'userdata'` progress line.
-This indicates that the client fails while preparing or mapping the oversized
-raw input, before starting the fastboot transfer.
+崩溃发生在 fastboot 打印任何 `Sending 'userdata'` 进度之前。这说明客户端在准备或
+映射过大的 raw 输入时已经失败，尚未开始传输。
 
-## Root cause
+## 根因
 
-The Google Windows fastboot client supplied with platform-tools 37.0.1 is a
-32-bit x86 executable. The uncompressed raw image is 3.5 GiB, which exceeds the
-practical user-mode address space available to that process. Loading or mapping
-the raw image raises `std::bad_alloc`.
+platform-tools 37.0.1 附带的 Google Windows fastboot 客户端是 32 位 x86 程序。
+未压缩 raw 镜像为 3.5 GiB，超过该进程实际可用的用户态地址空间。加载或映射 raw
+镜像时触发 `std::bad_alloc`。
 
-This is separate from the earlier sparse image corruption. The sparse V14
-image is accepted by the 32-bit client because the sparse file itself is
-1.5 GiB.
+这个问题与此前的 sparse 镜像损坏无关。V14 的 sparse 文件本身约 1.5 GiB，因此
+32 位客户端可以接受。
 
-## Impact
+## 影响
 
-- This failed command did not reach its first `Sending` stage, so it did not
-  successfully write the raw image.
-- The phone remains in fastboot mode and its partitions are not covered by an
-  AVB footer.
-- If `fastboot erase userdata` was already executed, the installed root filesystem
-  must not be treated as bootable until a valid rootfs is flashed.
+- 失败命令没有进入第一阶段的 `Sending`，因此没有成功写入 raw 镜像。
+- 手机仍停留在 fastboot 模式，分区也没有 AVB footer。
+- 如果已经执行过 `fastboot erase userdata`，刷入有效 rootfs 前不能把现有 rootfs
+  当作可启动系统。
 
-## Verification plan
+## 验证方案
 
-Test one variable at a time:
+每次只改变一个变量：
 
-1. Generate contiguous sparse segments smaller than 512 MiB.
-2. Keep the sparse logical size equal to the full 3.5 GiB rootfs, and represent
-   all data outside the current segment with `DONT_CARE` chunks.
-3. Do not emit FILL chunks; each segment contains RAW data only for its own
-   contiguous range.
-4. Verify each segment's sparse structure and file size before flashing.
-5. Erase `userdata`, flash all segments in order with the official 32-bit
-   client, then boot and verify ext4 health and online expansion.
+1. 生成小于 512 MiB 的连续 sparse 分卷。
+2. 保持 sparse 逻辑大小仍为完整 3.5 GiB，并把当前分卷之外的数据表示为
+   `DONT_CARE` chunk。
+3. 不生成 FILL chunk；每个分卷只在自己的连续区间内包含 RAW 数据。
+4. 刷写前验证每个分卷的 sparse 结构和文件大小。
+5. 擦除 `userdata`，使用官方 32 位客户端按顺序刷入所有分卷，然后启动并验证
+   ext4 健康和在线扩容。
 
-This removes the oversized raw allocation and also tests the bootloader without
-FILL chunks.
+该方案消除了超大 raw 内存分配，同时也在不含 FILL chunk 的情况下测试 bootloader。
 
-## Verification result
+## 验证结果
 
-The segmented test was completed successfully on the OnePlus 6:
+分段测试在一加 6 上成功完成：
 
 ```text
 root filesystem:       109 GiB
@@ -92,5 +83,5 @@ locked packages:       520
 package set SHA-256:   7c08610d03127668970b2b29256a21fdc71e2443b847b0b89d7db2be436b09d9
 ```
 
-The machine-readable verification record is
-`state/v14-segmented-flash-device-verification.json`.
+机器可读验证记录位于
+`state/v14-segmented-flash-device-verification.json`。
