@@ -1,0 +1,13 @@
+[Unit]
+Description=Configure OnePlus 6 USB network
+Requires=orbital-usb-gadget.service
+After=orbital-usb-gadget.service NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/orbital-usb-network start
+ExecStop=/usr/local/sbin/orbital-usb-network stop
+
+[Install]
+WantedBy=multi-user.target

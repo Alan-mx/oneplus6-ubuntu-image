@@ -1,0 +1,24 @@
+From: Codex
+Subject: [PATCH] fbcon: keep the boot logo with a quiet console
+
+Do not suppress the Linux boot logo solely because the console log level
+is quiet. This lets the early framebuffer show the logo while avoiding
+console text before the real display driver takes over.
+
+---
+ drivers/video/fbdev/core/fbcon.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/drivers/video/fbdev/core/fbcon.c b/drivers/video/fbdev/core/fbcon.c
+--- a/drivers/video/fbdev/core/fbcon.c
++++ b/drivers/video/fbdev/core/fbcon.c
+@@ -1104,9 +1104,6 @@ static void fbcon_init(struct vc_data *vc, bool init)
+ 
+ 	info = fbcon_info_from_console(vc->vc_num);
+ 
+-	if (logo_shown < 0 && console_loglevel <= CONSOLE_LOGLEVEL_QUIET)
+-		logo_shown = FBCON_LOGO_DONTSHOW;
+-
+ 	if (vc != svc || logo_shown == FBCON_LOGO_DONTSHOW ||
+ 	    (info->fix.type == FB_TYPE_TEXT))
+ 		logo = 0;

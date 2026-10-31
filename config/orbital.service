@@ -1,0 +1,21 @@
+[Unit]
+Description=Orbital graphical shell
+After=systemd-user-sessions.service NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+User=orbital
+Group=orbital
+SupplementaryGroups=video input render audio
+WorkingDirectory=/opt/orbital
+Environment=QT_QPA_PLATFORM=eglfs
+Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms
+ExecStart=/opt/orbital/run.sh
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

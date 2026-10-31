@@ -1,0 +1,12 @@
+[Unit]
+Description=Expand the root filesystem to the userdata partition size
+After=local-fs.target
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/resize2fs /dev/sda17
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+
+INTERFACE="usb0"
+DNSMASQ_CONFIG="/etc/orbital-dnsmasq.conf"
+DNSMASQ_PID="/run/orbital-usb-dnsmasq.pid"
+
+stop_dnsmasq() {
+    if [ -s "$DNSMASQ_PID" ]; then
+        pid="$(cat "$DNSMASQ_PID")"
+        kill "$pid" 2>/dev/null || true
+        rm -f "$DNSMASQ_PID"
+    fi
+}
+
+case "${1:-}" in
+    start)
+        elapsed=0
+        while [ ! -e "/sys/class/net/$INTERFACE" ] && [ "$elapsed" -lt 10 ]; do
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+        [ -e "/sys/class/net/$INTERFACE" ] || {
+            echo "$INTERFACE did not appear" >&2
+            exit 1
+        }
+
+        ip link set "$INTERFACE" up
+        ip addr replace 172.16.42.1/24 dev "$INTERFACE"
+        stop_dnsmasq
+        /usr/sbin/dnsmasq \
+            --conf-file="$DNSMASQ_CONFIG" \
+            --pid-file="$DNSMASQ_PID"
+        ;;
+    stop)
+        stop_dnsmasq
+        ;;
+    *)
+        echo "Usage: $0 start|stop" >&2
+        exit 2
+        ;;
+esac

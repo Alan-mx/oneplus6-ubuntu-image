@@ -1,0 +1,70 @@
+#!/bin/sh
+set -eu
+
+GADGET=/sys/kernel/config/usb_gadget/orbital
+
+modprobe libcomposite
+modprobe usb_f_rndis
+
+cleanup() {
+    if [ -d "$GADGET" ]; then
+        if [ -e "$GADGET/UDC" ]; then
+            printf '' > "$GADGET/UDC" 2>/dev/null || true
+        fi
+        find "$GADGET/configs" -type l -exec rm -f {} + 2>/dev/null || true
+        find "$GADGET/functions" -mindepth 1 -maxdepth 1 -type d -exec rmdir {} + 2>/dev/null || true
+        rmdir "$GADGET/configs"/* 2>/dev/null || true
+        rmdir "$GADGET/functions" 2>/dev/null || true
+        rmdir "$GADGET/strings"/* 2>/dev/null || true
+        rmdir "$GADGET" 2>/dev/null || true
+    fi
+}
+
+case "${1:-}" in
+    start)
+        cleanup
+        mkdir -p "$GADGET"
+        printf '0x18d1\n' > "$GADGET/idVendor"
+        printf '0xd001\n' > "$GADGET/idProduct"
+        printf '0x0100\n' > "$GADGET/bcdDevice"
+        printf '0x0200\n' > "$GADGET/bcdUSB"
+
+        mkdir -p "$GADGET/strings/0x409"
+        printf 'OnePlus 6\n' > "$GADGET/strings/0x409/manufacturer"
+        printf 'Orbital Ubuntu\n' > "$GADGET/strings/0x409/product"
+        printf 'orbital-oneplus6\n' > "$GADGET/strings/0x409/serialnumber"
+
+        mkdir -p "$GADGET/configs/c.1/strings/0x409"
+        printf 'RNDIS\n' > "$GADGET/configs/c.1/strings/0x409/configuration"
+
+        mkdir -p "$GADGET/functions/rndis.usb0"
+        ln -s "$GADGET/functions/rndis.usb0" "$GADGET/configs/c.1/rndis.usb0"
+
+        udc=""
+        for candidate in /sys/class/udc/*; do
+            [ -e "$candidate" ] || continue
+            udc="${candidate##*/}"
+            break
+        done
+        [ -n "$udc" ] || { echo "No UDC found" >&2; exit 1; }
+        printf '%s\n' "$udc" > "$GADGET/UDC"
+
+        elapsed=0
+        while [ ! -e /sys/class/net/usb0 ] && [ "$elapsed" -lt 10 ]; do
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+        [ -e /sys/class/net/usb0 ] || {
+            echo "usb0 did not appear" >&2
+            exit 1
+        }
+        ip link set usb0 up
+        ;;
+    stop)
+        cleanup
+        ;;
+    *)
+        echo "Usage: $0 start|stop" >&2
+        exit 2
+        ;;
+esac

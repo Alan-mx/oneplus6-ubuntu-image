@@ -1,0 +1,4 @@
+distro_name="Ubuntu Orbital"
+distro_prefix="orbital"
+crypttab_entry="root"
+bootimg_filename="oneplus6-boot.img"

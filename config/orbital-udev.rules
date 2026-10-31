@@ -1,0 +1,3 @@
+SUBSYSTEM=="backlight", GROUP="orbital", MODE="0660"
+SUBSYSTEM=="leds", GROUP="orbital", MODE="0660"
+KERNEL=="event*", SUBSYSTEM=="input", GROUP="input", MODE="0660"

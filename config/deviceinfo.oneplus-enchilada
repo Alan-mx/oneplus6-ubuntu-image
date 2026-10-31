@@ -1,0 +1,1 @@
+deviceinfo_kernel_cmdline="console=ttyMSM0,115200 earlycon=tty0 earlyprintk root=/dev/sda17 rootfstype=ext4 rootwait=10 loglevel=7 net.ifnames=0 rw"

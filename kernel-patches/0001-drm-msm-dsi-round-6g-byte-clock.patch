@@ -1,0 +1,51 @@
+From 6cd33b6f4155efc20485929fd0b56bb704641db9 Mon Sep 17 00:00:00 2001
+From: Kavan Smith <kavansmith82@gmail.com>
+Date: Mon, 6 Jul 2026 18:32:40 -0700
+Subject: [PATCH] drm/msm/dsi: round 6G byte clock rate to the PLL-achievable
+ value
+
+DSI 6G runtime command transfers re-apply the link clock rate before
+enabling the link clocks. If that rate differs from the rate realized by
+the DSI PHY PLL, every transfer can re-lock the PLL and disrupt a running
+video-mode panel. This affects runtime DCS commands such as backlight
+updates.
+
+Round the computed byte clock rate before storing it so later
+link_clk_set_rate() calls become no-ops in the common clock framework.
+
+Upstream: 6cd33b6f4155efc20485929fd0b56bb704641db9
+---
+ drivers/gpu/drm/msm/dsi/dsi_host.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
+index 982abaaac00d53..5e1b313f04c0db 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -670,12 +670,24 @@ static void dsi_calc_pclk(struct msm_dsi_host *msm_host, bool is_bonded_dsi)
+ 
+ int dsi_calc_clk_rate_6g(struct msm_dsi_host *msm_host, bool is_bonded_dsi)
+ {
++	long rounded_byte_clk_rate;
++
+ 	if (!msm_host->mode) {
+ 		pr_err("%s: mode not set\n", __func__);
+ 		return -EINVAL;
+ 	}
+ 
+ 	dsi_calc_pclk(msm_host, is_bonded_dsi);
++
++	rounded_byte_clk_rate = clk_round_rate(msm_host->byte_clk,
++					       msm_host->byte_clk_rate);
++	if (rounded_byte_clk_rate < 0) {
++		pr_err("%s: failed to round byte clock rate, %ld\n",
++		       __func__, rounded_byte_clk_rate);
++		return rounded_byte_clk_rate;
++	}
++
++	msm_host->byte_clk_rate = rounded_byte_clk_rate;
+ 	msm_host->esc_clk_rate = clk_get_rate(msm_host->esc_clk);
+ 	return 0;
+ }
+-- 
+2.51.0

@@ -1,0 +1,9 @@
+[Unit]
+Description=Restore the OnePlus 6 factory WLAN MAC address
+After=systemd-udevd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/orbital-wifi-mac wlan0
+TimeoutStartSec=40

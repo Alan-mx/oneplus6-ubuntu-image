@@ -1,0 +1,36 @@
+#!/bin/busybox sh
+set -eu
+
+export PATH="/bin"
+
+ROOT_DEVICE="/dev/sda17"
+ROOT_FSTYPE="ext4"
+ROOT_WAIT_SECONDS="10"
+ROOT_MOUNT_OPTIONS="rw,noatime"
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+mkdir -p /newroot
+
+elapsed=0
+while [ ! -e "$ROOT_DEVICE" ]; do
+    if [ "$elapsed" -ge "$ROOT_WAIT_SECONDS" ]; then
+        echo "Root device $ROOT_DEVICE did not appear after ${ROOT_WAIT_SECONDS}s" > /dev/console
+        exec /bin/busybox sh
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+done
+
+if ! mount -t "$ROOT_FSTYPE" -o "$ROOT_MOUNT_OPTIONS" "$ROOT_DEVICE" /newroot; then
+    echo "Failed to mount $ROOT_DEVICE on /newroot" > /dev/console
+    exec /bin/busybox sh
+fi
+
+mkdir -p /newroot/dev /newroot/proc /newroot/sys
+mount --move /dev /newroot/dev
+mount --move /proc /newroot/proc
+mount --move /sys /newroot/sys
+
+exec switch_root /newroot /sbin/init

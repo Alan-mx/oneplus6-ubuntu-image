@@ -1,0 +1,14 @@
+[Unit]
+Description=Start Qualcomm MSS for WLAN firmware
+After=pd-mapper.service rmtfs.service tqftpserv.service
+Wants=pd-mapper.service rmtfs.service tqftpserv.service
+Requires=rmtfs.service
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/orbital-msm-modem-start
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

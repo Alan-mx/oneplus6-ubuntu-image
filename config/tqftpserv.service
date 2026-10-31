@@ -1,0 +1,17 @@
+[Unit]
+Description=QRTR TFTP service for Qualcomm WCN firmware
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-modules-load.service systemd-udev-trigger.service sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=/usr/bin/tqftpserv
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tqftpserv
+Restart=always
+RestartSec=1
+StateDirectory=tqftpserv
+
+[Install]
+WantedBy=multi-user.target

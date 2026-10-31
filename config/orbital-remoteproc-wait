@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+count=0
+while [ ! -e /sys/class/remoteproc/remoteproc1/firmware ] ||
+      [ ! -e /sys/class/remoteproc/remoteproc3/firmware ]; do
+    [ "$count" -ge 300 ] && exit 1
+    count=$((count + 1))
+    sleep 0.1
+done

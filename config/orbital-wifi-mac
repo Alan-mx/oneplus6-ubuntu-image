@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+INTERFACE="${1:-wlan0}"
+MOUNT_DIR="/run/orbital-persist"
+MOUNTED_HERE=0
+
+cleanup() {
+    if [ "$MOUNTED_HERE" -eq 1 ]; then
+        umount "$MOUNT_DIR" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+elapsed=0
+while [ ! -e "/sys/class/net/$INTERFACE" ] && [ "$elapsed" -lt 30 ]; do
+    sleep 1
+    elapsed=$((elapsed + 1))
+done
+[ -e "/sys/class/net/$INTERFACE" ] || {
+    echo "$INTERFACE did not appear" >&2
+    exit 1
+}
+
+PERSIST_DEVICE=""
+for candidate in /dev/disk/by-partlabel/persist /dev/sda2; do
+    if [ -e "$candidate" ]; then
+        PERSIST_DEVICE="$candidate"
+        break
+    fi
+done
+[ -n "$PERSIST_DEVICE" ] || {
+    echo "persist partition not found" >&2
+    exit 1
+}
+
+mkdir -p "$MOUNT_DIR"
+if ! grep -qs " $MOUNT_DIR " /proc/mounts; then
+    mount -t ext4 -o ro,noload "$PERSIST_DEVICE" "$MOUNT_DIR"
+    MOUNTED_HERE=1
+fi
+
+hex_mac="$(
+    sed -n 's/^Intf0MacAddress=\([0-9A-Fa-f]\{12\}\).*/\1/p' \
+        "$MOUNT_DIR/wlan_mac.bin" | head -n 1
+)"
+if ! printf '%s\n' "$hex_mac" | grep -Eq '^[0-9A-Fa-f]{12}$'; then
+    echo "invalid Intf0MacAddress in persist: $hex_mac" >&2
+    exit 1
+fi
+
+mac="$(printf '%s\n' "$hex_mac" | sed 's/../&:/g; s/:$//')"
+ip link set dev "$INTERFACE" down
+ip link set dev "$INTERFACE" address "$mac"
+ip link set dev "$INTERFACE" up
+echo "configured $INTERFACE MAC $mac from $PERSIST_DEVICE"

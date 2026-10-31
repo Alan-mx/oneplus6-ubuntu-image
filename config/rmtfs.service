@@ -1,0 +1,14 @@
+[Unit]
+Description=Qualcomm Remote Filesystem Service
+After=local-fs.target
+Before=orbital-msm-modem.service NetworkManager.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/sbin/orbital-rmtfs-wait
+ExecStart=/usr/bin/rmtfs -r -P -s
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

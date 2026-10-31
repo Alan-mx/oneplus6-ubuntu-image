@@ -1,0 +1,39 @@
+# Generated build and release artifacts
+/out/
+/releases/
+/work/
+/state/
+/logs/
+/inputs/
+
+# Nested working copy placeholder
+/oneplus6-image/
+
+# Images, archives and generated checksum sidecars
+*.raw
+*.img
+*.zip
+*.sha256
+
+# Accidental output created by an old tool invocation
+/-
+
+# Python and editor caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
