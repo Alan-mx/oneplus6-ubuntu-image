@@ -5,7 +5,7 @@ image running the postmarketOS SDM845 kernel and the optional Orbital desktop.
 
 ## Current release
 
-V15 is hardware-verified on OnePlus 6. It includes:
+The first public release is hardware-verified on OnePlus 6. It includes:
 
 - Ubuntu 26.04.1 ARM64
 - Linux `7.1.0-rc1-sdm845`
@@ -25,7 +25,7 @@ WiFi or Tailscale.
 The recommended flash artifact is the segmented ZIP:
 
 ```text
-oneplus6-v15-segmented-flash.zip
+oneplus6-v1-segmented-flash.zip
 ```
 
 The single-file sparse rootfs images are retained for development but are not

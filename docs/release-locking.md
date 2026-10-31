@@ -2,7 +2,8 @@
 
 ## Releases
 
-- Current release: V15 in `out/` and `releases/v15/`.
+- Public release: first edition, tag `v1`.
+- Internal hardware-validation build sequence: V15.
 - Previous bootable release: V14 in `releases/v14/`.
 - V15 contains 524 locked packages.
 - V14 contains 520 locked packages.
