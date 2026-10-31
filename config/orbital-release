@@ -1,6 +1,6 @@
-NAME="OnePlus 6 Orbital Ubuntu"
-VERSION=15
-RELEASE_NAME="第一版"
+NAME="OnePlus 6 Ubuntu 26.04 Orbital"
+VERSION=1
+RELEASE_NAME="OnePlus 6 Ubuntu 26.04 Orbital"
 RELEASE_DATE=2026-10-31
 KERNEL_RELEASE=7.1.0-rc1-sdm845
 SECURITY_UPDATES=automatic-security-only

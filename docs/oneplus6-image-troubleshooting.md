@@ -132,16 +132,16 @@ resize2fs: Permission denied to resize filesystem
 4. 按顺序刷入全部段，并逐段校验 SHA-256。
 5. 首次启动后验证扩容服务和内核 ext4 日志；完整 `e2fsck` 检查在分区卸载的救援环境执行。
 
-V15 推荐使用：
+当前公开 Release 推荐使用：
 
 ```text
-oneplus6-v15-segmented-flash.zip
+oneplus6-v1-segmented-flash.zip
 ```
 
 这不是把文件简单按字节切成十份。每个段都是独立有效的 Android sparse 文件，
 有完整的逻辑大小信息，只有自己负责的连续区间用 RAW，其他区间用 DONT_CARE 表示。
 只在刷第一个段之前擦除一次 `userdata`，不能在段与段之间再次擦除。
-`scripts/make_sparse_segments.py` 生成段和 manifest，`scripts/flash-v15-segments.ps1`
+`scripts/make_sparse_segments.py` 生成段和 manifest，`scripts/flash-segments.ps1`
 负责校验覆盖范围、大小、哈希和刷写顺序。
 
 早期 10 GiB 逻辑镜像能启动，不意味着缩为 3.5 GiB 本身会导致损坏；镜像内容、
@@ -153,7 +153,7 @@ RAW/FILL 分布和刷写分段都会改变。应比较实际写入的块，而�
 单文件 sparse 镜像仍保留用于开发和检查，不作为 OnePlus 6 的首选刷写方式。
 
 分段包解压后约 3.5 GiB，是因为每段用 RAW 保存自己的区域，零块也占文件空间；
-ZIP 可以压缩这些重复内容，所以 V15 分段 ZIP 约 473 MiB。解压大小不是手机内存占用。
+ZIP 可以压缩这些重复内容，所以当前公开 Release 分段 ZIP 约 512 MiB。解压大小不是手机内存占用。
 
 刷 sparse 时曾看到：
 
@@ -764,7 +764,6 @@ V15 验收 JSON 记录了初始 SSH 登录、改密提示、密码策略、标�
 | fastboot RAW 内存不足 | 本仓库 `docs/bugs/oneplus6-fastboot-x86-raw-oom/root-cause.md` |
 | 刷后 ext4 元数据不一致与分段验证 | 本仓库 `docs/bugs/oneplus6-v14-flash-corruption/root-cause.md` |
 | DNS、RTC、GPU 早期固件、用户服务、蓝牙 | 本仓库 `docs/bugs/oneplus6-runtime-services/root-cause.md` |
-| 特定旧 AP 联网实测 | 本仓库 `docs/seacon-guest-wifi.md`，本文未收录实际密码 |
 | proot 失败与恢复 V14 的 V15 制作过程 | 本仓库 `docs/specs/fixed-initial-password/progress.md` |
 | 当前设备配置、服务、包锁及构建实现 | 本仓库 `config/`、`scripts/`、`kernel-patches/` |
 | V15 实机验收记录 | `releases/v15/v15-device-verification.json` |

@@ -2,7 +2,7 @@
 
 ## Releases
 
-- Public release: first edition, tag `v1`.
+- Public release: OnePlus 6 Ubuntu 26.04 Orbital, tag `v1`.
 - Internal hardware-validation build sequence: V15.
 - Previous bootable release: V14 in `releases/v14/`.
 - V15 contains 524 locked packages.
@@ -32,7 +32,7 @@
 - Final release image hashes: recorded in `state/release-lock.json` and
   `out/SHA256SUMS.txt`.
 - Sparse rootfs images are generated with the Android SDK `img2simg` tool.
-- The recommended V15 flash artifact is the validated segmented ZIP because the
+- The recommended public release flash artifact is the validated segmented ZIP because the
   OnePlus 6 fastboot path corrupted a raw chunk in a large single sparse image.
 
 The build fails when a resolved APK set, helper binary, boot image, or final
