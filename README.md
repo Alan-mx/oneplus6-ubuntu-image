@@ -42,6 +42,9 @@ oneplus6-v1-segmented-flash.zip
 
 Release 中还单独提供正常 boot、救援调试 boot、构建清单和 SHA-256 校验文件。
 
+Windows 下的 fastboot 驱动、RNDIS 网络驱动、Bootloader 解锁和常见连接问题，
+请参阅 [Windows 驱动、Bootloader 解锁与刷机](docs/windows-driver-and-flash.md)。
+
 刷机步骤：
 
 1. 解压 ZIP。
@@ -49,11 +52,14 @@ Release 中还单独提供正常 boot、救援调试 boot、构建清单和 SHA-
 3. 确认 `fastboot devices` 能看到设备。
 4. 在解压目录运行：
 
-```powershell
-pwsh -ExecutionPolicy Bypass -File .\flash.ps1
-```
+   ```powershell
+   pwsh -ExecutionPolicy Bypass -File .\flash.ps1 `
+     -Fastboot C:\path\to\platform-tools\fastboot.exe
+   ```
 
 5. 按提示输入 `ERASE USERDATA`。
+
+如果 `fastboot` 已经在 `PATH` 中，可以省略 `-Fastboot` 参数。
 
 脚本会检查设备、boot 哈希、分卷范围、分卷大小和 SHA-256，然后按顺序刷入。
 不要在分卷之间再次擦除 `userdata`。
@@ -157,6 +163,7 @@ verify-build.ps1  构建产物验证入口
 ## 文档
 
 - [文档导航](docs/README.md)
+- [Windows 驱动、Bootloader 解锁与刷机](docs/windows-driver-and-flash.md)
 - [从克隆到构建、修改和升级](docs/building-from-clone.md)
 - [升级构建输入](docs/upgrading-build-inputs.md)
 - [版本与输入锁定规则](docs/release-locking.md)
