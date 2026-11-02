@@ -164,6 +164,7 @@ verify-build.ps1  构建产物验证入口
 
 - [文档导航](docs/README.md)
 - [Windows 驱动、Bootloader 解锁与刷机](docs/windows-driver-and-flash.md)
+- [WiFi 连接与兼容性排障](docs/wifi-connection.md)
 - [从克隆到构建、修改和升级](docs/building-from-clone.md)
 - [升级构建输入](docs/upgrading-build-inputs.md)
 - [版本与输入锁定规则](docs/release-locking.md)

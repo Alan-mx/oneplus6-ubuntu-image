@@ -3,6 +3,7 @@
 ## 使用与刷机
 
 - [Windows 驱动、Bootloader 解锁与刷机](windows-driver-and-flash.md)
+- [WiFi 连接与兼容性排障](wifi-connection.md)
 - [分段刷机包说明](segmented-flash-README.md)
 - [默认账号与修改密码](fixed-initial-password.md)
 - [完整故障排查与修复记录](oneplus6-image-troubleshooting.md)
